@@ -36,7 +36,7 @@ import sys
 import time
 
 from . import (BackoffSettings, BundleOptions, bundling, CallSettings, config,
-               OPTION_INHERIT, PageIterator, RetryOptions)
+               PageIterator, RetryOptions)
 from .errors import GaxError, RetryError
 
 _MILLIS_PER_SECOND = 1000
@@ -293,8 +293,42 @@ def _upper_camel_to_lower_under(string):
     return out
 
 
+def _override_retry(config_base, overrides):
+    """Update config_base specifying retry params with overrides.
+
+    Args:
+      config_base: A dictionary of retry params.
+      overrides: A dictionary to update config_base.
+    """
+    for (name, params) in overrides.items():
+        if name in config_base:
+            config_base[name].update(params)
+        else:
+            config_base[name] = params
+
+
+def _override_methods(config_base, overrides):
+    """Update config_base specifying method condigs with overrides.
+
+    Args:
+      config_base: A dictionary of method config.
+      overrides: A dicitionary to update config_base.
+    """
+    for (name, params) in overrides.items():
+        if not params:
+            config_base[name] = None
+        else:
+            for (key, param) in params.items():
+                if key not in config_base[name]:
+                    continue
+                if key == 'bundling' and param:
+                    config_base[name][key].update(param)
+                else:
+                    config_base[name][key] = param
+
+
 def _override_config(config_base, overrides):
-    """merge overriding configs into config_base and return the new config.
+    """Merge overriding configs into config_base and return the new config.
 
     If overrides is empty, it returns the same config_base. Otherwise,
     it creates a copy of config_base and some parts are updated by overrides.
@@ -309,25 +343,9 @@ def _override_config(config_base, overrides):
     if 'retry_codes' in overrides:
         new_config['retry_codes'].update(overrides['retry_codes'])
     if 'retry_params' in overrides:
-        base_retry_params = new_config['retry_params']
-        for (name, params) in overrides['retry_params'].items():
-            if name in base_retry_params:
-                base_retry_params[name].update(params)
-            else:
-                base_retry_params[name] = params
+        _override_retry(new_config['retry_params'], overrides['retry_params'])
     if 'methods' in overrides:
-        base_methods = new_config['methods']
-        for (name, params) in overrides['methods'].items():
-            if not params:
-                base_methods[name] = None
-            else:
-                for (key, param) in params.items():
-                    if key not in base_methods[name]:
-                        continue
-                    if key == 'bundling' and param:
-                        base_methods[name][key].update(param)
-                    else:
-                        base_methods[name][key] = param
+        _override_methods(new_config['methods'], overrides['methods'])
     return new_config
 
 
