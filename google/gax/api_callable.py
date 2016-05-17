@@ -30,7 +30,6 @@
 """Provides function wrappers that implement page streaming and retrying."""
 
 from __future__ import absolute_import, division
-import copy
 import random
 import sys
 import time
@@ -293,60 +292,26 @@ def _upper_camel_to_lower_under(string):
     return out
 
 
-def _override_retry(config_base, overrides):
-    """Update config_base specifying retry params with overrides.
+def _get_settings_dict(service_config, retry_names, timeout, bundle_descriptors,
+                       page_descriptors):
+    """Creates the dictionary for the settings from the service_config."""
+    result = dict()
+    for method in service_config.get('methods'):
+        method_config = service_config['methods'][method]
+        snake_name = _upper_camel_to_lower_under(method)
 
-    Args:
-      config_base: A dictionary of retry params.
-      overrides: A dictionary to update config_base.
-    """
-    for (name, params) in overrides.items():
-        if name in config_base:
-            config_base[name].update(params)
-        else:
-            config_base[name] = params
+        bundle_descriptor = bundle_descriptors.get(snake_name)
+        bundler = _construct_bundling(method_config, bundle_descriptor)
 
+        retry = _construct_retry(
+            method_config, service_config['retry_codes'],
+            service_config['retry_params'], retry_names)
 
-def _override_methods(config_base, overrides):
-    """Update config_base specifying method condigs with overrides.
-
-    Args:
-      config_base: A dictionary of method config.
-      overrides: A dicitionary to update config_base.
-    """
-    for (name, params) in overrides.items():
-        if not params:
-            config_base[name] = None
-        else:
-            for (key, param) in params.items():
-                if key not in config_base[name]:
-                    continue
-                if key == 'bundling' and param:
-                    config_base[name][key].update(param)
-                else:
-                    config_base[name][key] = param
-
-
-def _override_config(config_base, overrides):
-    """Merge overriding configs into config_base and return the new config.
-
-    If overrides is empty, it returns the same config_base. Otherwise,
-    it creates a copy of config_base and some parts are updated by overrides.
-
-    Args:
-      config_base: A dictionary for base config.
-      overrides: A dictionary in the same structure of config_base.
-    """
-    if not overrides:
-        return config_base
-    new_config = copy.deepcopy(config_base)
-    if 'retry_codes' in overrides:
-        new_config['retry_codes'].update(overrides['retry_codes'])
-    if 'retry_params' in overrides:
-        _override_retry(new_config['retry_params'], overrides['retry_params'])
-    if 'methods' in overrides:
-        _override_methods(new_config['methods'], overrides['methods'])
-    return new_config
+        result[snake_name] = CallSettings(
+            timeout=timeout, retry=retry,
+            page_descriptor=page_descriptors.get(snake_name),
+            bundler=bundler, bundle_descriptor=bundle_descriptor)
+    return result
 
 
 def construct_settings(
@@ -420,7 +385,6 @@ def construct_settings(
         located in the provided ``client_config``.
     """
     # pylint: disable=too-many-locals
-    defaults = dict()
     bundle_descriptors = bundle_descriptors or {}
     page_descriptors = page_descriptors or {}
 
@@ -430,24 +394,17 @@ def construct_settings(
         raise KeyError('Client configuration not found for service: {}'
                        .format(service_name))
 
+    defaults = _get_settings_dict(service_config, retry_names, timeout,
+                                  bundle_descriptors, page_descriptors)
+
     overrides = config_override.get('interfaces', {}).get(service_name, None)
-    service_config = _override_config(service_config, overrides)
-
-    for method in service_config.get('methods'):
-        method_config = service_config['methods'][method]
-        snake_name = _upper_camel_to_lower_under(method)
-
-        bundle_descriptor = bundle_descriptors.get(snake_name)
-        bundler = _construct_bundling(method_config, bundle_descriptor)
-
-        retry = _construct_retry(
-            method_config, service_config['retry_codes'],
-            service_config['retry_params'], retry_names)
-
-        defaults[snake_name] = CallSettings(
-            timeout=timeout, retry=retry,
-            page_descriptor=page_descriptors.get(snake_name),
-            bundler=bundler, bundle_descriptor=bundle_descriptor)
+    if overrides:
+        overriding_settings = _get_settings_dict(
+            overrides, retry_names, timeout,
+            bundle_descriptors, page_descriptors)
+        for method in overriding_settings:
+            if method in defaults:
+                defaults[method] = overriding_settings[method]
 
     return defaults
 

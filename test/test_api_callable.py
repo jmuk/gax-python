@@ -386,9 +386,25 @@ class TestCreateApiCallable(unittest2.TestCase):
         _override = {
             'interfaces': {
                 _SERVICE_NAME: {
+                    'retry_codes': {
+                        'foo_retry': ['code_a', 'code_b'],
+                    },
+                    'retry_params': {
+                        'default': {
+                            'initial_retry_delay_millis': 100,
+                            'retry_delay_multiplier': 1.2,
+                            'max_retry_delay_millis': 1000,
+                            'initial_rpc_timeout_millis': 300,
+                            'rpc_timeout_multiplier': 1.3,
+                            'max_rpc_timeout_millis': 3000,
+                            'total_timeout_millis': 30000
+                        }
+                    },
                     'methods': {
                         'PageStreamingMethod': None,
                         'BundlingMethod': {
+                            'retry_codes_name': 'foo_retry',
+                            'retry_params_name': 'default',
                             'bundling': None
                         }
                     }
@@ -413,15 +429,11 @@ class TestCreateApiCallable(unittest2.TestCase):
             'interfaces': {
                 _SERVICE_NAME: {
                     'retry_codes': {
-                        'foo_retry': [],
+                        'bar_retry': [],
                         'baz_retry': ['code_a']
                     },
                     'retry_params': {
                         'default': {
-                            'initial_retry_delay_millis': 200,
-                            'retry_delay_multiplier': 1.5
-                        },
-                        '10x': {
                             'initial_retry_delay_millis': 1000,
                             'retry_delay_multiplier': 1.2,
                             'max_retry_delay_millis': 10000,
@@ -432,16 +444,11 @@ class TestCreateApiCallable(unittest2.TestCase):
                         },
                     },
                     'methods': {
-                        'PageStreamingMethod': {
-                            'retry_codes_name': 'baz_retry'
-                        },
                         'BundlingMethod': {
-                            'retry_params_name': '10x',
-                            'bundling': {
-                                'element_count_limit': 20
-                            }
+                            'retry_params_name': 'default',
+                            'retry_codes_name': 'baz_retry',
                         },
-                    }
+                    },
                 }
             }
         }
@@ -452,15 +459,18 @@ class TestCreateApiCallable(unittest2.TestCase):
         settings = defaults['bundling_method']
         backoff = settings.retry.backoff_settings
         self.assertEquals(backoff.initial_retry_delay_millis, 1000)
-        self.assertEquals(settings.retry.retry_codes, [])
-        self.assertIsInstance(settings.bundler, bundling.Executor)
-        self.assertIsInstance(settings.bundle_descriptor, BundleDescriptor)
+        self.assertEquals(settings.retry.retry_codes, [_RETRY_DICT['code_a']])
+        self.assertIsNone(settings.bundler)
+
+        # page_streaming_method is unaffectd because it's not specified in
+        # overrides. 'bar_retry' or 'default' definitions in overrides should
+        # not affect the methods which are not in the overrides.
         settings = defaults['page_streaming_method']
         backoff = settings.retry.backoff_settings
-        self.assertEquals(backoff.initial_retry_delay_millis, 200)
-        self.assertEquals(backoff.retry_delay_multiplier, 1.5)
+        self.assertEquals(backoff.initial_retry_delay_millis, 100)
+        self.assertEquals(backoff.retry_delay_multiplier, 1.2)
         self.assertEquals(backoff.max_retry_delay_millis, 1000)
-        self.assertEquals(settings.retry.retry_codes, [_RETRY_DICT['code_a']])
+        self.assertEquals(settings.retry.retry_codes, [_RETRY_DICT['code_c']])
 
     @mock.patch('google.gax.config.API_ERRORS', (CustomException, ))
     def test_catch_error(self):
