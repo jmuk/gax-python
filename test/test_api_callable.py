@@ -386,25 +386,9 @@ class TestCreateApiCallable(unittest2.TestCase):
         _override = {
             'interfaces': {
                 _SERVICE_NAME: {
-                    'retry_codes': {
-                        'foo_retry': ['code_a', 'code_b'],
-                    },
-                    'retry_params': {
-                        'default': {
-                            'initial_retry_delay_millis': 100,
-                            'retry_delay_multiplier': 1.2,
-                            'max_retry_delay_millis': 1000,
-                            'initial_rpc_timeout_millis': 300,
-                            'rpc_timeout_multiplier': 1.3,
-                            'max_rpc_timeout_millis': 3000,
-                            'total_timeout_millis': 30000
-                        }
-                    },
                     'methods': {
                         'PageStreamingMethod': None,
                         'BundlingMethod': {
-                            'retry_codes_name': 'foo_retry',
-                            'retry_params_name': 'default',
                             'bundling': None
                         }
                     }
@@ -460,7 +444,8 @@ class TestCreateApiCallable(unittest2.TestCase):
         backoff = settings.retry.backoff_settings
         self.assertEquals(backoff.initial_retry_delay_millis, 1000)
         self.assertEquals(settings.retry.retry_codes, [_RETRY_DICT['code_a']])
-        self.assertIsNone(settings.bundler)
+        self.assertIsInstance(settings.bundler, bundling.Executor)
+        self.assertIsInstance(settings.bundle_descriptor, BundleDescriptor)
 
         # page_streaming_method is unaffectd because it's not specified in
         # overrides. 'bar_retry' or 'default' definitions in overrides should

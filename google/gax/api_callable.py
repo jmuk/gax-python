@@ -203,13 +203,13 @@ def _page_streamable(a_func, page_descriptor, page_token=None,
     return flattened if flatten_pages else unflattened
 
 
-def _construct_bundling(method_config, bundle_descriptor):
+def _construct_bundling(bundle_config, bundle_descriptor):
     """Helper for ``construct_settings()``.
 
     Args:
-      method_config: A dictionary representing a single ``methods`` entry of the
-        standard API client config file. (See ``construct_settings()`` for
-        information on this yaml.)
+      bundle_config: A dictionary specifying a bundle parameters, the value for
+        'bundling' field in a method config (See ``construct_settings()`` for
+        information on this config.)
       bundle_descriptor: A BundleDescriptor object describing the structure of
         bundling for this method. If not set, this method will not bundle.
 
@@ -217,18 +217,15 @@ def _construct_bundling(method_config, bundle_descriptor):
       A tuple (bundling.Executor, BundleDescriptor) that configures bundling.
       The bundling.Executor may be None if this method should not bundle.
     """
-    if method_config and 'bundling' in method_config and bundle_descriptor:
-        params = method_config['bundling']
-        if params:
-            bundler = bundling.Executor(BundleOptions(
-                element_count_threshold=params.get(
-                    'element_count_threshold', 0),
-                element_count_limit=params.get('element_count_limit', 0),
-                request_byte_threshold=params.get('request_byte_threshold', 0),
-                request_byte_limit=params.get('request_byte_limit', 0),
-                delay_threshold=params.get('delay_threshold_millis', 0)))
-        else:
-            bundler = None
+    if bundle_config and bundle_descriptor:
+        bundler = bundling.Executor(BundleOptions(
+            element_count_threshold=bundle_config.get(
+                'element_count_threshold', 0),
+            element_count_limit=bundle_config.get('element_count_limit', 0),
+            request_byte_threshold=bundle_config.get(
+                'request_byte_threshold', 0),
+            request_byte_limit=bundle_config.get('request_byte_limit', 0),
+            delay_threshold=bundle_config.get('delay_threshold_millis', 0)))
     else:
         bundler = None
 
@@ -254,29 +251,55 @@ def _construct_retry(method_config, retry_codes, retry_params, retry_names):
     Returns:
       A RetryOptions object, or None.
     """
-    if not method_config:
+    if method_config is None:
         return None
-    codes = []
-    if retry_codes:
-        for codes_name in retry_codes:
-            if (codes_name == method_config['retry_codes_name'] and
-                    retry_codes[codes_name]):
-                codes = [
-                    retry_names[name] for name in retry_codes[codes_name]]
-                break
 
-    params_struct = None
-    if method_config.get('retry_params_name'):
-        for params_name in retry_params:
-            if params_name == method_config['retry_params_name']:
-                params_struct = retry_params[params_name].copy()
-                break
-        backoff_settings = BackoffSettings(**params_struct)
-    else:
-        backoff_settings = None
+    codes = None
+    if retry_codes and 'retry_codes_name' in method_config:
+        codes_name = method_config['retry_codes_name']
+        if codes_name in retry_codes and retry_codes[codes_name]:
+            codes = [retry_names[name] for name in retry_codes[codes_name]]
+        else:
+            codes = []
 
-    retry = RetryOptions(retry_codes=codes, backoff_settings=backoff_settings)
-    return retry
+    backoff_settings = None
+    if retry_params and 'retry_params_name' in method_config:
+        params_name = method_config['retry_params_name']
+        if params_name and params_name in retry_params:
+            backoff_settings = BackoffSettings(**retry_params[params_name])
+
+    return RetryOptions(retry_codes=codes, backoff_settings=backoff_settings)
+
+
+def _merge_retry_options(retry, overrides):
+    """Helper fo ``construct_settings()``.
+
+    This takes two retry options, and merges them into a single RetryOption
+    instance.
+
+    Args:
+      retry: The base RetryOptions.
+      overrides: The RetryOptions used for overriding ``retry``. Use the values
+        if it is not None. If entire ``overrides`` is None, that means cancel of
+        specifying retry options, thus returns None.
+
+    Returns:
+      The merged RetryOptions, or None if it will be canceled.
+    """
+    if overrides is None:
+        return None
+
+    if (overrides.retry_codes is None and overrides.backoff_settings is None):
+        return retry
+
+    codes = retry.retry_codes
+    if overrides.retry_codes is not None:
+        codes = overrides.retry_codes
+    backoff_settings = retry.backoff_settings
+    if overrides.backoff_settings is not None:
+        backoff_settings = overrides.backoff_settings
+
+    return RetryOptions(retry_codes=codes, backoff_settings=backoff_settings)
 
 
 def _upper_camel_to_lower_under(string):
@@ -290,28 +313,6 @@ def _upper_camel_to_lower_under(string):
         else:
             out += char
     return out
-
-
-def _get_settings_dict(service_config, retry_names, timeout, bundle_descriptors,
-                       page_descriptors):
-    """Creates the dictionary for the settings from the service_config."""
-    result = dict()
-    for method in service_config.get('methods'):
-        method_config = service_config['methods'][method]
-        snake_name = _upper_camel_to_lower_under(method)
-
-        bundle_descriptor = bundle_descriptors.get(snake_name)
-        bundler = _construct_bundling(method_config, bundle_descriptor)
-
-        retry = _construct_retry(
-            method_config, service_config['retry_codes'],
-            service_config['retry_params'], retry_names)
-
-        result[snake_name] = CallSettings(
-            timeout=timeout, retry=retry,
-            page_descriptor=page_descriptors.get(snake_name),
-            bundler=bundler, bundle_descriptor=bundle_descriptor)
-    return result
 
 
 def construct_settings(
@@ -385,6 +386,7 @@ def construct_settings(
         located in the provided ``client_config``.
     """
     # pylint: disable=too-many-locals
+    defaults = dict()
     bundle_descriptors = bundle_descriptors or {}
     page_descriptors = page_descriptors or {}
 
@@ -394,18 +396,29 @@ def construct_settings(
         raise KeyError('Client configuration not found for service: {}'
                        .format(service_name))
 
-    defaults = _get_settings_dict(service_config, retry_names, timeout,
-                                  bundle_descriptors, page_descriptors)
+    overrides = config_override.get('interfaces', {}).get(service_name, {})
 
-    overrides = config_override.get('interfaces', {}).get(service_name, None)
-    if overrides:
-        overriding_settings = _get_settings_dict(
-            overrides, retry_names, timeout,
-            bundle_descriptors, page_descriptors)
-        for method in overriding_settings:
-            if method in defaults:
-                defaults[method] = overriding_settings[method]
+    for method in service_config.get('methods'):
+        method_config = service_config['methods'][method]
+        overriding_method = overrides.get('methods', {}).get(method, {})
+        snake_name = _upper_camel_to_lower_under(method)
 
+        bundle_descriptor = bundle_descriptors.get(snake_name)
+        bundling_config = method_config.get('bundling', None)
+        if overriding_method and 'bundling' in overriding_method:
+            bundling_config = overriding_method['bundling']
+        bundler = _construct_bundling(bundling_config, bundle_descriptor)
+
+        retry = _merge_retry_options(
+            _construct_retry(method_config, service_config['retry_codes'],
+                             service_config['retry_params'], retry_names),
+            _construct_retry(overriding_method, overrides.get('retry_codes'),
+                             overrides.get('retry_params'), retry_names))
+
+        defaults[snake_name] = CallSettings(
+            timeout=timeout, retry=retry,
+            page_descriptor=page_descriptors.get(snake_name),
+            bundler=bundler, bundle_descriptor=bundle_descriptor)
     return defaults
 
 
