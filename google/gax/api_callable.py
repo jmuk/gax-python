@@ -239,7 +239,7 @@ def _construct_retry(method_config, retry_codes, retry_params, retry_names):
       method_config: A dictionary representing a single ``methods`` entry of the
         standard API client config file. (See ``construct_settings()`` for
         information on this yaml.)
-      retry_codes_def: A dictionary parsed from the ``retry_codes_def`` entry
+      retry_codes: A dictionary parsed from the ``retry_codes`` entry
         of the standard API client config file. (See ``construct_settings()``
         for information on this yaml.)
       retry_params: A dictionary parsed from the ``retry_params`` entry
@@ -272,16 +272,15 @@ def _construct_retry(method_config, retry_codes, retry_params, retry_names):
 
 
 def _merge_retry_options(retry, overrides):
-    """Helper fo ``construct_settings()``.
+    """Helper for ``construct_settings()``.
 
-    This takes two retry options, and merges them into a single RetryOption
-    instance.
+    Takes two retry options, and merges them into a single RetryOption instance.
 
     Args:
       retry: The base RetryOptions.
       overrides: The RetryOptions used for overriding ``retry``. Use the values
-        if it is not None. If entire ``overrides`` is None, that means cancel of
-        specifying retry options, thus returns None.
+        if it is not None. If entire ``overrides`` is None, ignore the base
+        retry and return None.
 
     Returns:
       The merged RetryOptions, or None if it will be canceled.
@@ -289,7 +288,7 @@ def _merge_retry_options(retry, overrides):
     if overrides is None:
         return None
 
-    if (overrides.retry_codes is None and overrides.backoff_settings is None):
+    if overrides.retry_codes is None and overrides.backoff_settings is None:
         return retry
 
     codes = retry.retry_codes
@@ -386,7 +385,7 @@ def construct_settings(
         located in the provided ``client_config``.
     """
     # pylint: disable=too-many-locals
-    defaults = dict()
+    defaults = {}
     bundle_descriptors = bundle_descriptors or {}
     page_descriptors = page_descriptors or {}
 

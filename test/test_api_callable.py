@@ -447,7 +447,7 @@ class TestCreateApiCallable(unittest2.TestCase):
         self.assertIsInstance(settings.bundler, bundling.Executor)
         self.assertIsInstance(settings.bundle_descriptor, BundleDescriptor)
 
-        # page_streaming_method is unaffectd because it's not specified in
+        # page_streaming_method is unaffected because it's not specified in
         # overrides. 'bar_retry' or 'default' definitions in overrides should
         # not affect the methods which are not in the overrides.
         settings = defaults['page_streaming_method']
