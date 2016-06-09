@@ -41,59 +41,63 @@ from .errors import GaxError, RetryError
 _MILLIS_PER_SECOND = 1000
 
 
-def _add_timeout_arg(a_func, timeout):
-    """Updates a_func so that it gets called with the timeout as its final arg.
+class _RetryableWrapper(object):
+    """A callable to call with either retrying or timeout parameter."""
 
-    This converts a callable, a_func, into another callable with an additional
-    positional arg.
+    def __init__(self, a_func, settings):
+        """Constructor.
 
-    Args:
-      a_func (callable): a callable to be updated
-      timeout (int): to be added to the original callable as it final positional
-        arg.
-
-
-    Returns:
-      callable: the original callable updated to the timeout arg
-    """
-
-    def inner(*args, **kw):
-        """Updates args with the timeout."""
-        updated_args = args + (timeout,)
-        return a_func(*updated_args, **kw)
-
-    return inner
-
-
-def _retryable(a_func, retry):
-    """Creates a function equivalent to a_func, but that retries on certain
-    exceptions.
-
-    Args:
-        a_func (callable): A callable.
-        retry (RetryOptions): Configures the exceptions upon which the callable
-          should retry, and the parameters to the exponential backoff retry
-          algorithm.
-
-    Returns:
-        A function that will retry on exception.
-    """
-
-    delay_mult = retry.backoff_settings.retry_delay_multiplier
-    max_delay = (retry.backoff_settings.max_retry_delay_millis /
-                 _MILLIS_PER_SECOND)
-    timeout_mult = retry.backoff_settings.rpc_timeout_multiplier
-    max_timeout = (retry.backoff_settings.max_rpc_timeout_millis /
-                   _MILLIS_PER_SECOND)
-    total_timeout = (retry.backoff_settings.total_timeout_millis /
-                     _MILLIS_PER_SECOND)
-
-    def inner(*args, **kwargs):
-        """Equivalent to ``a_func``, but retries upon transient failure.
-
-        Retrying is done through an exponential backoff algorithm configured
-        by the options in ``retry``.
+        Args:
+          a_func (callable[[req] resp]): an API call.
+          settings (CallSettings): the base settings for the API call.
         """
+        self._func = a_func
+        self._settings = settings
+
+    def __call__(self, req, options=None, *args, **kwargs):
+        """The API call, customized by the additional CallOptions.
+
+        Args:
+          req (object): the request object.
+          options (gax.CallOptions): the optional value to customize the
+            calling behavior.
+        """
+        settings = self._settings.merge(options)
+        if settings.retry and settings.retry.retry_codes:
+            return self._with_retry(req, settings.retry, *args, **kwargs)
+        else:
+            return self._with_timeout(
+                req, settings.timeout, *args, **kwargs)
+
+    def _with_timeout(self, req, timeout, *args, **kwargs):
+        """Invokes the function with the specified timeout argument.
+
+        Args:
+          req (object): the request object.
+          timeout (int): to be added to the original callable as it final
+            positional arg.
+        """
+
+        updated_args = args + (timeout,)
+        return self._func(req, *updated_args, **kwargs)
+
+    def _with_retry(self, req, retry, *args, **kwargs):
+        """Invokes the function with the specified retry parameters.
+
+        Args:
+          req (object): the request object.
+          retry (gax.RetryOptions): the retrying backoff settings.
+        """
+
+        delay_mult = retry.backoff_settings.retry_delay_multiplier
+        max_delay = (retry.backoff_settings.max_retry_delay_millis /
+                     _MILLIS_PER_SECOND)
+        timeout_mult = retry.backoff_settings.rpc_timeout_multiplier
+        max_timeout = (retry.backoff_settings.max_rpc_timeout_millis /
+                       _MILLIS_PER_SECOND)
+        total_timeout = (retry.backoff_settings.total_timeout_millis /
+                         _MILLIS_PER_SECOND)
+
         delay = retry.backoff_settings.initial_retry_delay_millis
         timeout = (retry.backoff_settings.initial_rpc_timeout_millis /
                    _MILLIS_PER_SECOND)
@@ -104,8 +108,7 @@ def _retryable(a_func, retry):
 
         while now < deadline:
             try:
-                to_call = _add_timeout_arg(a_func, timeout)
-                return to_call(*args, **kwargs)
+                return self._with_timeout(req, timeout, *args, **kwargs)
 
             # pylint: disable=broad-except
             except Exception as exception:
@@ -127,10 +130,8 @@ def _retryable(a_func, retry):
 
         raise exc
 
-    return inner
 
-
-def _bundleable(a_func, desc, bundler):
+def _bundleable(a_func, settings, desc):
     """Creates a function that transforms an API call into a bundling call.
 
     It transform a_func from an API call that receives the requests and returns
@@ -141,19 +142,23 @@ def _bundleable(a_func, desc, bundler):
     bundled call.
 
     Args:
-        a_func (callable[[req], resp]): an API call that supports bundling.
+        a_func (callable[[req, options], resp]): an API call that supports
+          bundling.
+        settings (gax.CallSettings): the base call settings of the behavior.
         desc (gax.BundleDescriptor): describes the bundling that a_func
           supports.
-        bundler (gax.bundling.Executor): orchestrates bundling.
 
     Returns:
         callable: takes the API call's request and keyword args and returns a
           bundling.Event object.
 
     """
-    def inner(*args, **kwargs):
+    def inner(request, options=None, *args, **kwargs):
         """Schedules execution of a bundling task."""
-        request = args[0]
+        bundler = settings.merge(options).bundler
+        if not bundler:
+            return a_func(request, options, *args, **kwargs)
+
         the_id = bundling.compute_bundle_id(
             request, desc.request_discriminator_fields)
         return bundler.schedule(a_func, the_id, desc, request, kwargs)
@@ -161,29 +166,24 @@ def _bundleable(a_func, desc, bundler):
     return inner
 
 
-def _page_streamable(a_func, page_descriptor, page_token=None,
-                     flatten_pages=True):
+def _page_streamable(a_func, settings, page_descriptor):
     """Creates a function that yields an iterable to performs page-streaming.
 
     Args:
-        a_func (callable[[req], resp]): an API call that is page streaming.
+        a_func (callable[[req, opts], resp]): an API call that is page
+          streaming.
+        settings (gax.CallSettings): the base settings.
         page_descriptor (:class:`PageDescriptor`): indicates the structure
           of page streaming to be performed.
-        page_token (str): Optional. If set and page streaming is over pages of
-          the response, indicates the page_token to be passed to the API call.
-        flatten_pages (bool): Optional. If set, the returned iterable is over
-          ``resource_field``; otherwise the returned iterable is over the pages
-          of the response, each of which is an iterable over ``resource_field``.
 
     Returns:
         A function that returns an iterable.
     """
 
-    def flattened(*args, **kwargs):
+    def flattened(request, options, *args, **kwargs):
         """A generator that yields all the paged responses."""
-        request = args[0]
         while True:
-            response = a_func(request, **kwargs)
+            response = a_func(request, options, *args, **kwargs)
             for obj in getattr(response, page_descriptor.resource_field):
                 yield obj
             next_page_token = getattr(
@@ -194,13 +194,20 @@ def _page_streamable(a_func, page_descriptor, page_token=None,
                     page_descriptor.request_page_token_field,
                     next_page_token)
 
-    def unflattened(*args, **kwargs):
+    def unflattened(request, page_token, *args, **kwargs):
         """A generator that yields individual pages."""
-        request = args[0]
         return PageIterator(
             a_func, page_descriptor, page_token, request, **kwargs)
 
-    return flattened if flatten_pages else unflattened
+    def inner(request, options=None, *args, **kwargs):
+        this_settings = settings.merge(options)
+        if this_settings.flatten_pages:
+            return flattened(request, options, *args, **kwargs)
+        else:
+            return unflattened(
+                request, this_settings.page_token, *args, **kwargs)
+
+    return inner
 
 
 def _construct_bundling(bundle_config, bundle_descriptor):
@@ -471,27 +478,16 @@ def create_api_call(func, settings):
          and page_streaming are both configured
 
     """
-    if settings.retry and settings.retry.retry_codes:
-        api_call = _retryable(func, settings.retry)
-    else:
-        api_call = _add_timeout_arg(func, settings.timeout)
+    api_call = _RetryableWrapper(func, settings)
 
     if settings.page_descriptor:
         if settings.bundler and settings.bundle_descriptor:
             raise ValueError('The API call has incompatible settings: '
                              'bundling and page streaming')
-        if settings.flatten_pages is None:
-            flatten_pages = True
-        else:
-            flatten_pages = settings.flatten_pages
         return _page_streamable(
-            api_call,
-            settings.page_descriptor,
-            page_token=settings.page_token,
-            flatten_pages=flatten_pages)
+            api_call, settings, settings.page_descriptor)
 
     if settings.bundler and settings.bundle_descriptor:
-        return _bundleable(api_call, settings.bundle_descriptor,
-                           settings.bundler)
+        return _bundleable(api_call, settings, settings.bundle_descriptor)
 
     return _catch_errors(api_call, config.API_ERRORS)

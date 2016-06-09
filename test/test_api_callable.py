@@ -36,7 +36,7 @@ import unittest2
 
 from google.gax import (
     api_callable, bundling, BackoffSettings, BundleDescriptor, BundleOptions,
-    CallSettings, INITIAL_PAGE, PageDescriptor, RetryOptions)
+    CallSettings, CallOptions, INITIAL_PAGE, PageDescriptor, RetryOptions)
 from google.gax.errors import GaxError, RetryError
 
 
@@ -118,6 +118,12 @@ class TestCreateApiCallable(unittest2.TestCase):
         my_callable = api_callable.create_api_call(
             lambda _req, _timeout: 42, settings)
         self.assertEqual(my_callable(None), 42)
+
+    def test_call_override(self):
+        settings = CallSettings(timeout=10)
+        my_callable = api_callable.create_api_call(
+            lambda _req, timeout: timeout, settings)
+        self.assertEqual(my_callable(None, CallOptions(timeout=20)), 20)
 
     @mock.patch('time.time')
     @mock.patch('google.gax.config.exc_to_code')
@@ -307,33 +313,26 @@ class TestCreateApiCallable(unittest2.TestCase):
             self.assertEqual(list(my_callable(PageStreamingRequest())),
                              list(range(page_size * pages_to_stream)))
 
-            unflattened_settings = CallSettings(
-                page_descriptor=fake_grpc_func_descriptor, timeout=0,
-                flatten_pages=False, page_token=INITIAL_PAGE)
-            unflattened_callable = api_callable.create_api_call(
-                mock_grpc, settings=unflattened_settings)
+            unflattened_option = CallOptions(page_token=INITIAL_PAGE)
             # Expect a list of pages_to_stream pages, each of size page_size,
             # plus one empty page
             expected = [list(range(page_size * n, page_size * (n + 1)))
                         for n in range(pages_to_stream)] + [()]
-            self.assertEqual(list(unflattened_callable(PageStreamingRequest())),
+            self.assertEqual(list(my_callable(PageStreamingRequest(),
+                                              unflattened_option)),
                              expected)
 
             pages_already_read = 2
-            explicit_page_token_settings = CallSettings(
-                page_descriptor=fake_grpc_func_descriptor, timeout=0,
-                flatten_pages=False,
+            explicit_page_token_option = CallOptions(
                 page_token=str(page_size * pages_already_read))
-            explicit_page_token_callable = api_callable.create_api_call(
-                mock_grpc, settings=explicit_page_token_settings)
             # Expect a list of pages_to_stream pages, each of size page_size,
             # plus one empty page, minus the pages_already_read
             expected = [list(range(page_size * n, page_size * (n + 1)))
                         for n in range(pages_already_read, pages_to_stream)]
             expected += [()]
-            self.assertEqual(
-                list(explicit_page_token_callable(PageStreamingRequest())),
-                expected)
+            self.assertEqual(list(my_callable(PageStreamingRequest(),
+                                              explicit_page_token_option)),
+                             expected)
 
     def test_bundling_page_streaming_error(self):
         settings = CallSettings(

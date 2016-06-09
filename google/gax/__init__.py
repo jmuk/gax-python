@@ -52,8 +52,7 @@ class CallSettings(object):
     """Encapsulates the call settings for an API call."""
     # pylint: disable=too-few-public-methods
     def __init__(self, timeout=30, retry=None, page_descriptor=None,
-                 flatten_pages=None, page_token=None, bundler=None,
-                 bundle_descriptor=None):
+                 page_token=None, bundler=None, bundle_descriptor=None):
         """Constructor.
 
         Args:
@@ -64,11 +63,6 @@ class CallSettings(object):
             page_descriptor (:class:`PageDescriptor`): indicates the structure
               of page streaming to be performed. If set to None, page streaming
               is disabled.
-            flatten_pages (bool): If there is no ``page_descriptor``, this
-              attrbute has no meaning. Otherwise, determines whether a page
-              streamed response should make the page structure transparent to
-              the user by flattening the repeated field in the returned
-              generator.
             page_token (str): If there is no ``page_descriptor``, this attribute
               has no meaning. Otherwise, determines the page token used in the
               page streaming request.
@@ -80,10 +74,20 @@ class CallSettings(object):
         self.timeout = timeout
         self.retry = retry
         self.page_descriptor = page_descriptor
-        self.flatten_pages = flatten_pages
         self.page_token = page_token
         self.bundler = bundler
         self.bundle_descriptor = bundle_descriptor
+
+    @property
+    def flatten_pages(self):
+        """
+        A boolean property whether a page streamed response should make
+        the page structure transparent to the user by flattening the
+        repeated field in the returned generator.
+
+        There is no ``page_descriptor``, this means nothing.
+        """
+        return self.page_token is None
 
     def merge(self, options):
         """Returns a new CallSettings merged from this and a CallOptions object.
@@ -103,8 +107,9 @@ class CallSettings(object):
         if not options:
             return CallSettings(
                 timeout=self.timeout, retry=self.retry,
-                page_descriptor=self.page_descriptor, bundler=self.bundler,
-                bundle_descriptor=self.bundle_descriptor)
+                page_descriptor=self.page_descriptor,
+                page_token=self.page_token,
+                bundler=self.bundler, bundle_descriptor=self.bundle_descriptor)
         else:
             if options.timeout == OPTION_INHERIT:
                 timeout = self.timeout
@@ -117,10 +122,8 @@ class CallSettings(object):
                 retry = options.retry
 
             if options.page_token == OPTION_INHERIT:
-                flatten_pages = self.flatten_pages
                 page_token = self.page_token
             else:
-                flatten_pages = False
                 page_token = options.page_token
 
             if options.is_bundling:
@@ -131,8 +134,7 @@ class CallSettings(object):
             return CallSettings(
                 timeout=timeout, retry=retry,
                 page_descriptor=self.page_descriptor, page_token=page_token,
-                flatten_pages=flatten_pages, bundler=bundler,
-                bundle_descriptor=self.bundle_descriptor)
+                bundler=bundler, bundle_descriptor=self.bundle_descriptor)
 
 
 class CallOptions(object):
