@@ -43,6 +43,7 @@ _MILLIS_PER_SECOND = 1000
 
 class _RetryableWrapper(object):
     """A callable to call with either retrying or timeout parameter."""
+    # pylint: disable=too-few-public-methods
 
     def __init__(self, a_func, settings):
         """Constructor.
@@ -88,6 +89,7 @@ class _RetryableWrapper(object):
           req (object): the request object.
           retry (gax.RetryOptions): the retrying backoff settings.
         """
+        # pylint: disable=too-many-locals
 
         delay_mult = retry.backoff_settings.retry_delay_multiplier
         max_delay = (retry.backoff_settings.max_retry_delay_millis /
@@ -194,12 +196,13 @@ def _page_streamable(a_func, settings, page_descriptor):
                     page_descriptor.request_page_token_field,
                     next_page_token)
 
-    def unflattened(request, page_token, *args, **kwargs):
+    def unflattened(request, page_token, **kwargs):
         """A generator that yields individual pages."""
         return PageIterator(
             a_func, page_descriptor, page_token, request, **kwargs)
 
     def inner(request, options=None, *args, **kwargs):
+        """Dispatch either of flattened or unflattened."""
         this_settings = settings.merge(options)
         if this_settings.flatten_pages:
             return flattened(request, options, *args, **kwargs)
