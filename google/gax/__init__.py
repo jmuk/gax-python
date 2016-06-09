@@ -81,9 +81,9 @@ class CallSettings(object):
     @property
     def flatten_pages(self):
         """
-        A boolean property whether a page streamed response should make
-        the page structure transparent to the user by flattening the
-        repeated field in the returned generator.
+        A boolean property indicating whether a page streamed response should
+        make the page structure transparent to the user by flattening the
+        repeated field in the returned iterator.
 
         There is no ``page_descriptor``, this means nothing.
         """
