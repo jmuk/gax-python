@@ -125,6 +125,12 @@ class TestCreateApiCallable(unittest2.TestCase):
             lambda _req, timeout: timeout, settings)
         self.assertEqual(my_callable(None, CallOptions(timeout=20)), 20)
 
+    def test_call_kwargs(self):
+        settings = CallSettings(kwargs={'key': 'value'})
+        my_callable = api_callable.create_api_call(
+            lambda _req, _timeout, **kwargs: kwargs['key'], settings)
+        self.assertEquals(my_callable(None), 'value')
+
     @mock.patch('time.time')
     @mock.patch('google.gax.config.exc_to_code')
     def test_retry(self, mock_exc_to_code, mock_time):
@@ -367,19 +373,22 @@ class TestCreateApiCallable(unittest2.TestCase):
         defaults = api_callable.construct_settings(
             _SERVICE_NAME, _A_CONFIG, dict(), _RETRY_DICT, 30,
             bundle_descriptors=_BUNDLE_DESCRIPTORS,
-            page_descriptors=_PAGE_DESCRIPTORS)
+            page_descriptors=_PAGE_DESCRIPTORS,
+            kwargs={'key1': 'value1'})
         settings = defaults['bundling_method']
         self.assertEquals(settings.timeout, 30)
         self.assertIsInstance(settings.bundler, bundling.Executor)
         self.assertIsInstance(settings.bundle_descriptor, BundleDescriptor)
         self.assertIsNone(settings.page_descriptor)
         self.assertIsInstance(settings.retry, RetryOptions)
+        self.assertEquals(settings.kwargs, {'key1': 'value1'})
         settings = defaults['page_streaming_method']
         self.assertEquals(settings.timeout, 30)
         self.assertIsNone(settings.bundler)
         self.assertIsNone(settings.bundle_descriptor)
         self.assertIsInstance(settings.page_descriptor, PageDescriptor)
         self.assertIsInstance(settings.retry, RetryOptions)
+        self.assertEquals(settings.kwargs, {'key1': 'value1'})
 
     def test_construct_settings_override(self):
         _override = {

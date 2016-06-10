@@ -41,7 +41,7 @@ from .errors import GaxError, RetryError
 _MILLIS_PER_SECOND = 1000
 
 
-def _add_timeout_arg(a_func, timeout):
+def _add_timeout_arg(a_func, timeout, **kwargs):
     """Updates a_func so that it gets called with the timeout as its final arg.
 
     This converts a callable, a_func, into another callable with an additional
@@ -57,15 +57,15 @@ def _add_timeout_arg(a_func, timeout):
       callable: the original callable updated to the timeout arg
     """
 
-    def inner(*args, **kw):
+    def inner(*args):
         """Updates args with the timeout."""
         updated_args = args + (timeout,)
-        return a_func(*updated_args, **kw)
+        return a_func(*updated_args, **kwargs)
 
     return inner
 
 
-def _retryable(a_func, retry):
+def _retryable(a_func, retry, **kwargs):
     """Creates a function equivalent to a_func, but that retries on certain
     exceptions.
 
@@ -88,7 +88,7 @@ def _retryable(a_func, retry):
     total_timeout = (retry.backoff_settings.total_timeout_millis /
                      _MILLIS_PER_SECOND)
 
-    def inner(*args, **kwargs):
+    def inner(*args):
         """Equivalent to ``a_func``, but retries upon transient failure.
 
         Retrying is done through an exponential backoff algorithm configured
@@ -104,8 +104,8 @@ def _retryable(a_func, retry):
 
         while now < deadline:
             try:
-                to_call = _add_timeout_arg(a_func, timeout)
-                return to_call(*args, **kwargs)
+                to_call = _add_timeout_arg(a_func, timeout, **kwargs)
+                return to_call(*args)
 
             # pylint: disable=broad-except
             except Exception as exception:
@@ -298,7 +298,8 @@ def _upper_camel_to_lower_under(string):
 
 def construct_settings(
         service_name, client_config, config_override,
-        retry_names, timeout, bundle_descriptors=None, page_descriptors=None):
+        retry_names, timeout, bundle_descriptors=None, page_descriptors=None,
+        kwargs=None):
     """Constructs a dictionary mapping method names to CallSettings.
 
     The ``client_config`` parameter is parsed from a client configuration JSON
@@ -361,6 +362,7 @@ def construct_settings(
       retry_names: A dictionary mapping the strings referring to response status
         codes to the Python objects representing those codes.
       timeout: The timeout parameter for all API calls in this dictionary.
+      kwargs: The keyword arguments to be passed to the API calls.
 
     Raises:
       KeyError: If the configuration for the service in question cannot be
@@ -370,6 +372,7 @@ def construct_settings(
     defaults = {}
     bundle_descriptors = bundle_descriptors or {}
     page_descriptors = page_descriptors or {}
+    kwargs = kwargs or {}
 
     try:
         service_config = client_config['interfaces'][service_name]
@@ -399,7 +402,8 @@ def construct_settings(
         defaults[snake_name] = CallSettings(
             timeout=timeout, retry=retry,
             page_descriptor=page_descriptors.get(snake_name),
-            bundler=bundler, bundle_descriptor=bundle_descriptor)
+            bundler=bundler, bundle_descriptor=bundle_descriptor,
+            kwargs=kwargs)
     return defaults
 
 
@@ -453,19 +457,20 @@ def create_api_call(func, settings):
          and page_streaming are both configured
 
     """
-    def base_caller(api_call, _, *args, **kwargs):
+    def base_caller(api_call, _, *args):
         """Simply call api_call and ignore settings."""
-        return api_call(*args, **kwargs)
+        return api_call(*args)
 
-    def inner(request, options=None, *args, **kwargs):
+    def inner(request, options=None):
         """Invoke with the actual settings."""
         this_settings = settings.merge(options)
         if this_settings.retry and this_settings.retry.retry_codes:
-            api_call = _retryable(func, this_settings.retry)
+            api_call = _retryable(func, this_settings.retry, **settings.kwargs)
         else:
-            api_call = _add_timeout_arg(func, this_settings.timeout)
+            api_call = _add_timeout_arg(
+                func, this_settings.timeout, **settings.kwargs)
         api_call = _catch_errors(api_call, config.API_ERRORS)
-        return api_caller(api_call, this_settings, request, *args, **kwargs)
+        return api_caller(api_call, this_settings, request)
 
     if settings.page_descriptor:
         if settings.bundler and settings.bundle_descriptor:

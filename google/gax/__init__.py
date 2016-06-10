@@ -52,7 +52,8 @@ class CallSettings(object):
     """Encapsulates the call settings for an API call."""
     # pylint: disable=too-few-public-methods
     def __init__(self, timeout=30, retry=None, page_descriptor=None,
-                 page_token=None, bundler=None, bundle_descriptor=None):
+                 page_token=None, bundler=None, bundle_descriptor=None,
+                 kwargs=None):
         """Constructor.
 
         Args:
@@ -70,6 +71,8 @@ class CallSettings(object):
               None, bundling is not performed.
             bundle_descriptor (:class:`BundleDescriptor`): indicates the
               structure of of the bundle. If None, bundling is disabled.
+            kwargs (dict): other keyword arguments to be passed to the API
+              calls.
         """
         self.timeout = timeout
         self.retry = retry
@@ -77,6 +80,7 @@ class CallSettings(object):
         self.page_token = page_token
         self.bundler = bundler
         self.bundle_descriptor = bundle_descriptor
+        self.kwargs = kwargs or {}
 
     @property
     def flatten_pages(self):
@@ -109,7 +113,8 @@ class CallSettings(object):
                 timeout=self.timeout, retry=self.retry,
                 page_descriptor=self.page_descriptor,
                 page_token=self.page_token,
-                bundler=self.bundler, bundle_descriptor=self.bundle_descriptor)
+                bundler=self.bundler, bundle_descriptor=self.bundle_descriptor,
+                kwargs=self.kwargs)
         else:
             if options.timeout == OPTION_INHERIT:
                 timeout = self.timeout
@@ -134,7 +139,8 @@ class CallSettings(object):
             return CallSettings(
                 timeout=timeout, retry=retry,
                 page_descriptor=self.page_descriptor, page_token=page_token,
-                bundler=bundler, bundle_descriptor=self.bundle_descriptor)
+                bundler=bundler, bundle_descriptor=self.bundle_descriptor,
+                kwargs=self.kwargs)
 
 
 class CallOptions(object):
