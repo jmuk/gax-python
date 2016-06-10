@@ -174,6 +174,7 @@ def _page_streamable(page_descriptor):
     """
 
     def inner(a_func, settings, request, **kwargs):
+        """Actual page-streaming based on the settings."""
         page_iterator = PageIterator(
             a_func, page_descriptor, settings.page_token, request, **kwargs)
         if settings.flatten_pages:
@@ -412,7 +413,7 @@ def _catch_errors(errors):
     Returns:
         A function that will wrap certain exceptions with GaxError
     """
-    def inner(a_func, settings, *args, **kwargs):
+    def inner(a_func, _, *args, **kwargs):
         """Wraps specified exceptions"""
         try:
             return a_func(*args, **kwargs)
@@ -463,6 +464,7 @@ def create_api_call(func, settings):
             api_caller = _bundleable(api_caller, settings.bundle_descriptor)
 
     def inner(request, options=None, *args, **kwargs):
+        """Invoke with the actual settings."""
         this_settings = settings.merge(options)
         if this_settings.retry and this_settings.retry.retry_codes:
             api_call = _retryable(func, this_settings.retry)

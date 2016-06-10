@@ -433,7 +433,7 @@ class PageIterator(object):
         return getattr(response, self._page_descriptor.resource_field)
 
 
-class ResourceIterator():
+class ResourceIterator(object):
     """An iterator over resources of the page iterator."""
 
     # pylint: disable=too-few-public-methods
@@ -451,13 +451,13 @@ class ResourceIterator():
         return self
 
     def next(self):
-        if not self._current:
+        """Retrieves the next resource."""
+        # pylint: disable=next-method-called
+        while not self._current:
             self._current = self._iterator.next()
             self._index = 0
-        if len(self._current) <= self._index:
-                raise StopIteration
         resource = self._current[self._index]
         self._index += 1
         if self._index >= len(self._current):
-                self._current = None
+            self._current = None
         return resource
