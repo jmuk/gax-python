@@ -130,6 +130,8 @@ class TestCreateApiCallable(unittest2.TestCase):
         my_callable = api_callable.create_api_call(
             lambda _req, _timeout, **kwargs: kwargs['key'], settings)
         self.assertEquals(my_callable(None), 'value')
+        self.assertEquals(my_callable(None, CallOptions(key='updated')),
+                          'updated')
 
     @mock.patch('time.time')
     @mock.patch('google.gax.config.exc_to_code')

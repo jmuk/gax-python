@@ -136,11 +136,17 @@ class CallSettings(object):
             else:
                 bundler = None
 
+            if options.kwargs == OPTION_INHERIT:
+                kwargs = self.kwargs
+            else:
+                kwargs = self.kwargs.copy()
+                kwargs.update(options.kwargs)
+
             return CallSettings(
                 timeout=timeout, retry=retry,
                 page_descriptor=self.page_descriptor, page_token=page_token,
                 bundler=bundler, bundle_descriptor=self.bundle_descriptor,
-                kwargs=self.kwargs)
+                kwargs=kwargs)
 
 
 class CallOptions(object):
@@ -154,7 +160,7 @@ class CallOptions(object):
     """
     # pylint: disable=too-few-public-methods
     def __init__(self, timeout=OPTION_INHERIT, retry=OPTION_INHERIT,
-                 page_token=OPTION_INHERIT, is_bundling=False):
+                 page_token=OPTION_INHERIT, is_bundling=False, **kwargs):
         """Constructor.
 
         Example:
@@ -190,6 +196,7 @@ class CallOptions(object):
         self.retry = retry
         self.page_token = page_token
         self.is_bundling = is_bundling
+        self.kwargs = kwargs or OPTION_INHERIT
 
 
 class PageDescriptor(

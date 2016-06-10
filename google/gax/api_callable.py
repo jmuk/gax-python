@@ -465,10 +465,11 @@ def create_api_call(func, settings):
         """Invoke with the actual settings."""
         this_settings = settings.merge(options)
         if this_settings.retry and this_settings.retry.retry_codes:
-            api_call = _retryable(func, this_settings.retry, **settings.kwargs)
+            api_call = _retryable(
+                func, this_settings.retry, **this_settings.kwargs)
         else:
             api_call = _add_timeout_arg(
-                func, this_settings.timeout, **settings.kwargs)
+                func, this_settings.timeout, **this_settings.kwargs)
         api_call = _catch_errors(api_call, config.API_ERRORS)
         return api_caller(api_call, this_settings, request)
 
