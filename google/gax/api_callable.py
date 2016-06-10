@@ -454,6 +454,7 @@ def create_api_call(func, settings):
 
     """
     def base_caller(api_call, _, *args, **kwargs):
+        """Simply call api_call and ignore settings."""
         return api_call(*args, **kwargs)
 
     def inner(request, options=None, *args, **kwargs):
