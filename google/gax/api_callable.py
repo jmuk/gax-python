@@ -130,7 +130,7 @@ def _retryable(a_func, retry):
     return inner
 
 
-def _bundleable(base_caller, desc):
+def _bundleable(desc):
     """Creates a function that transforms an API call into a bundling call.
 
     It transform a_func from an API call that receives the requests and returns
@@ -154,7 +154,7 @@ def _bundleable(base_caller, desc):
     def inner(a_func, settings, request, **kwargs):
         """Schedules execution of a bundling task."""
         if not settings.bundler:
-            return base_caller(a_func, settings, request, **kwargs)
+            return a_func(request, **kwargs)
 
         the_id = bundling.compute_bundle_id(
             request, desc.request_discriminator_fields)
@@ -403,7 +403,7 @@ def construct_settings(
     return defaults
 
 
-def _catch_errors(errors):
+def _catch_errors(a_func, errors):
     """Updates a_func to wrap exceptions with GaxError
 
     Args:
@@ -413,7 +413,7 @@ def _catch_errors(errors):
     Returns:
         A function that will wrap certain exceptions with GaxError
     """
-    def inner(a_func, _, *args, **kwargs):
+    def inner(*args, **kwargs):
         """Wraps specified exceptions"""
         try:
             return a_func(*args, **kwargs)
@@ -453,15 +453,8 @@ def create_api_call(func, settings):
          and page_streaming are both configured
 
     """
-    if settings.page_descriptor:
-        if settings.bundler and settings.bundle_descriptor:
-            raise ValueError('The API call has incompatible settings: '
-                             'bundling and page streaming')
-        api_caller = _page_streamable(settings.page_descriptor)
-    else:
-        api_caller = _catch_errors(config.API_ERRORS)
-        if settings.bundler and settings.bundle_descriptor:
-            api_caller = _bundleable(api_caller, settings.bundle_descriptor)
+    def base_caller(api_call, _, *args, **kwargs):
+        return api_call(*args, **kwargs)
 
     def inner(request, options=None, *args, **kwargs):
         """Invoke with the actual settings."""
@@ -470,6 +463,17 @@ def create_api_call(func, settings):
             api_call = _retryable(func, this_settings.retry)
         else:
             api_call = _add_timeout_arg(func, this_settings.timeout)
+        api_call = _catch_errors(api_call, config.API_ERRORS)
         return api_caller(api_call, this_settings, request, *args, **kwargs)
+
+    if settings.page_descriptor:
+        if settings.bundler and settings.bundle_descriptor:
+            raise ValueError('The API call has incompatible settings: '
+                             'bundling and page streaming')
+        api_caller = _page_streamable(settings.page_descriptor)
+    elif settings.bundler and settings.bundle_descriptor:
+        api_caller = _bundleable(settings.bundle_descriptor)
+    else:
+        api_caller = base_caller
 
     return inner
