@@ -431,3 +431,33 @@ class PageIterator(object):
         if not self.page_token:
             self._done = True
         return getattr(response, self._page_descriptor.resource_field)
+
+
+class ResourceIterator():
+    """An iterator over resources of the page iterator."""
+
+    # pylint: disable=too-few-public-methods
+    def __init__(self, page_iterator):
+        """Constructor.
+
+        Args:
+          page_iterator (PageIterator): the base iterator of getting pages.
+        """
+        self._iterator = page_iterator
+        self._current = None
+        self._index = -1
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if not self._current:
+            self._current = self._iterator.next()
+            self._index = 0
+        if len(self._current) <= self._index:
+                raise StopIteration
+        resource = self._current[self._index]
+        self._index += 1
+        if self._index >= len(self._current):
+                self._current = None
+        return resource
